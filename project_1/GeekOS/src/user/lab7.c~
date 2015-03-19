@@ -1,0 +1,38 @@
+#include <conio.h>
+#include <process.h>
+int person = 0;
+void *GreetME(){
+  switch(person){
+	case 0  :
+		Print("Good Evening pranay");
+		break;
+	case 1  :
+		Print("Good Evening hari");
+		break;
+	case 2  :
+		Print("Good Evening sumanth");
+		break;
+	case 3  :
+		Print("Good Evening varun");
+		break;
+	case 4  :
+		Print("Good Evening dinesh");
+		break;
+	default :
+		Print("Good Evening haren");
+		break;
+}
+  person = (person+1)%6;
+  Exit(-1);
+  return 0;
+}
+
+int main() 
+{
+  int pid = SpawnThread(GreetME);
+  Print("PID of child thread %d\n", pid);
+  int pid1 = SpawnThread(GreetME);
+  Print("PID of child thread %d\n", pid1);
+  Print("Good Bye\n");
+  return 1;
+}

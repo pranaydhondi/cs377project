@@ -1,0 +1,171 @@
+﻿Q1.
+Init_BSS() : src/geekos/mem.c
+Initialize the .bss section of the kernel executable image. Fills that section with zeroes.
+
+
+Init_Screen() : src/geekos/screen.c
+Initialises the screen module i.e it blanks the VGA screen and initialises its hardware cursor
+
+
+Init_Mem(bootInfo) : src/geekos/mem.c
+calls init_GDT and creates a static variable s_GDT (permanent global descriptor table).
+Enables the use of Alloc_Page() and Free_Page() functions.
+Adding Page objects right after the end of the kernel, and mark it as "kernel"
+Loads the GDT base address and limit into GDTR.
+Treats memory as a sequence of 4KB pages. Creates (in kernel memory) a list of Page structs corresponding to the memory pages, each storing the attributes of its page . Global variable g_pageList points to the list. Also creates a list of the available pages (s_freeList).
+Calls Init_Heap  to initialize the kernel heap. (Malloc itself is implemented by bget.)
+The initial kernel thread and its stack are placed just beyond the ISA hole.
+
+
+Init_CRC32() : src/geekos/crc32.c
+This routine writes each crc_table entry exactly once, with the correct final value.
+
+
+Init_TSS() : src/geekos/tss.c
+GeekOS uses a single TSS (static variable s_theTSS). It also zeros the TSS struct, adds the TSS descriptor to GDT and  updates LDTR.
+This must be done after the memory and GDT initialization, but before the scheduler is started.
+
+
+lockKernel() :  lockKernel and unlockKernel will be used whenever interrupts are enabled or disabled.
+
+
+Init_Interrupts : src/geekos/int.c
+Initializes interrupt system (IDT)  with 256 interrupt gate entries. The first 32 entries are for exceptions and traps.
+Initialize all entries of the handler table with a dummy handler.
+Loads the IDT base address and limit into IDTR.
+
+
+Init_SMP() : src/geekos/smp.c
+Identifies how many cores there are and get those cores running. Via a inter-procesor interrupt (IPI), it starts the function setup_2nd_32 (geekos/setup.asm) which        get the new core into 32-bit mode and then calls Secondary_Start (geekos/smp.c).
+
+
+TODO_P() : include/geekos/projects.h
+
+
+Init_Scheduler : geekos/kthread.c
+Creates a Kernel_Thread object for the initial kernel thread and indicates that as the currently        executing thread (g_currentThread). (At this point, the initial kernel thread becomes a true         OS thread.)
+Creates an idle thread (runs when there is no other thread to run) and makes it runnable.
+Creates a reaper thread (responsible for cleaning up terminated threads) and makes it runnable.
+Initializes some queues of pointers to Kernel_Thread objects: s_allThreadList is a list         with an entry for every thread; s_runQueue is a queue with an entry for every runnable thread; and g_currentThreads[] indicates the currently executing thread (one element per core).
+
+
+Init_Traps (defined in geekos/trap.c): 
+Installs interrupt handlers for interrupts 12, 13 and 0x90 (syscall) (in g_interruptTable). The handler for interrupt 12 (stack exception) terminates the current thread.
+The handler for interrupt 13 (general protection failure) terminates the current thread. The handler for interrupt 0x90 calls the syscall handler function.
+
+
+Init_Local_APIC defined in (geekos/smp.c) initializes the local interrupt controller. 
+
+
+Init_Timer (defined in geekos/timer.c): Initializes the timer. Installs interrupt handler for timer interrupt (IRQ 0, corresponding to IDT entry 32). Enables timer interrupt.
+
+
+Init_Keyboard (defined in geekos/keyboard.c): Initializes the keyboard state. Installs interrupt handler for keyboard interrupt (IRQ 1, corresponding to IDT entry 33). Enables keyboard 
+interrupt.
+
+
+Init_DMA (defined in geekos/dma.c): Resets the DMA controller. 
+
+
+Init_IDE (defined in geekos/ide.c): Reset the IDE controller and drives. Start “IDE request” thread, to wait for requests to IDE. 
+
+
+Init_PFAT (defined in geekos/pfat.c): Registers the PFAT file system interface to the virtual file system.
+
+
+Init_GFS2, Init_GOSFS start all of the different filesystem types.
+
+
+Init_Alarm sets up the alarm system so kernel threads can request alarms to happen.
+
+
+Networking Initializers -  start the threads associated with the networking stack.
+
+
+Release_SMP allows all of the secondary cores to start running (and they quickly finish their initial threads and start running the Idle thread for that core).
+
+
+Mount_Root_Filesystem: mounts the root drive (diskc) as a PFAT file system to there virtual file system (in vfs.c) at root prefix “/”. 
+
+
+Spawn_Init_Process: starts the user shell program.
+
+
+Q2.
+struct Kernel_Thread {
+    ulong_t esp;                /* offset 0 */ - stack pointer in SS
+    volatile ulong_t numTicks;  /* offset 4 */ - no of ticks run on CPU
+    volatile ulong_t totalTime; - Total ticks of the thread
+    int priority; - priority value of thread
+     DEFINE_LINK(Thread_Queue, Kernel_Thread); - Kernel_Thread  members have to be
+  used as link fields for  membership in a Thread_Queue type list.
+
+
+    void *stackPage;
+    struct User_Context *userContext; - struct is used for user-level threads where context is necessary
+    struct Kernel_Thread *owner;  - pointer to owner of this thread
+    int affinity;               // prefered core = AFFINITY_ANY_CORE --> can run on any core - about compatibility with different cores
+    int refCount;
+    int detached;               // detached processes don't linger on Exit as zombies waiting for Wait to reap
+        int files_no;
+    /* The kernel thread id; also used as process id */
+    int pid; - id of the process
+
+
+    /* These fields are used to implement the Join() function */
+    bool alive;  -whether a thread is not exited after its start
+    struct Thread_Queue joinQueue;
+    int exitCode;
+
+
+    /* Link fields for list of all threads in the system. */
+     DEFINE_LINK(All_Thread_List, Kernel_Thread);
+
+
+    /* Array of MAX_TLOCAL_KEYS pointers to thread-local data. */
+#define MAX_TLOCAL_KEYS 128
+    const void *tlocalData[MAX_TLOCAL_KEYS];
+
+
+
+
+    char threadName[20]; - name of the thread
+
+
+};
+
+
+
+
+
+
+Q3.
+
+
+Start_User_Thread() is used for creating User Level Threads and Start_Kernal_Thread() is used for creating the Kernal level Threads. We can see that these process creates these threads as well as makes the thread ready by adding it to list of ready processes called s_runQueue.
+In the file “src/geekos/kthread.c” we can see that the function void Schedule(void) gets the next runnable thread by calling the function Get_Next_Runnable(), which calls Get_Next_Runnable_Locked() which inturn calls Find_best() , if we see this function we can see that , the threads are selected without consedering the parent process. It looks for all the threads and gets the thread based on the priority. Hence all the threads are KLT in geekos.
+GeekOS is scheduling threads using multi-level round-robin instead of processes(i.e not distinguishing threads of a same process).
+
+
+Q4.
+From  g_interruptTable, the interrupt handler calls the keyboard interrupt handler.
+I/O - 
+When there is call for “Wait_For_Key “ , that function calls an assembly function reading through the keyboard port as keycode and puts in the "keycode Queue" (in keyboard.c).
+Scheduling -
+When keycode queue is empty, it calls the wait function and thread is added in the queue. Scheduler is called. When the DMA gets one character , it raises the interrupt which takes the current thread from waiting queue and puts in into the running Queue.  After that the top of the “keycode Queue” is taken and returned it back and remaining code of Thread is executed.
+
+
+Q5.
+
+
+For the implementation of fork(), a new thread has to be created.
+i.e Spawn a thread using Init_Thread().
+The new thread must have parameters like numticks, totaltime, affinity same as those of parent thread.
+put detached = false
+Then-
+A new stackpage has to be created and contents from the parent’s stackpage have to be copied.
+Give it priority(default case - same as parent priority).
+A new context has to be created and contents from the parent’s context have to be copied.
+Set its owner thread to be its parent thread
+Pid is returned to its parent process
+The thread is added to the queue by Make_Runnable_Atomic
